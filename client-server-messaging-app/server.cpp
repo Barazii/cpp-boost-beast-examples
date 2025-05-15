@@ -1,63 +1,53 @@
-
+#include <cstdlib>
 #include <boost/asio.hpp>
 #include <iostream>
 #include <thread>
-#include <cstdlib>
 
 using boost::asio::ip::tcp;
 
-void read_messages(tcp::socket &socket)
+void read_msg(tcp::socket &socket)
 {
-    char data[1024];
+    std::string data(1024, '\0');
     while (true)
     {
-        std::memset(data, 0, sizeof(data));
-        boost::system::error_code error;
-        socket.read_some(boost::asio::buffer(data), error);
-        if (error)
-            break;
-        std::cout << "Client: " << data << std::endl;
+        if (socket.read_some(boost::asio::buffer(data, data.max_size())))
+        {
+            std::cout << "Client: " << data << std::endl;
+            data.clear();
+            data.resize(1024);
+        }
     }
 }
 
-void handle_client(tcp::socket &&socket)
+void write_msg(tcp::socket &socket)
 {
-    try
+    std::string response;
+    while (true)
     {
-        std::thread reader_thread(read_messages, std::ref(socket));
+        response.clear();
+        std::cout << "You: ";
+        std::getline(std::cin, response);
+        socket.write_some(boost::asio::buffer(response, response.max_size()));
+    }
+}
 
-        while (true)
-        {
-            // Send response
-            std::string response;
-            std::cout << "You: ";
-            std::getline(std::cin, response);
-            boost::asio::write(socket, boost::asio::buffer(response));
-        }
-        reader_thread.join();
-    }
-    catch (std::exception &e)
-    {
-        std::cerr << "Exception: " << e.what() << std::endl;
-    }
+void communicate(tcp::socket &&socket)
+{
+    std::thread read_thread{read_msg, std::ref(socket)};
+    std::thread write_thread{write_msg, std::ref(socket)};
+
+    read_thread.join();
+    write_thread.join();
 }
 
 int main()
 {
-    try
-    {
-        boost::asio::io_context io_context;
-        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 12345));
-        tcp::socket socket(io_context);
-        std::cout << "Server started. Waiting for client..." << std::endl;
-        acceptor.accept(socket);
-        std::cout << "Client connected!" << std::endl;
-        handle_client(std::move(socket));
-    }
-    catch (std::exception &e)
-    {
-        std::cerr << "Exception: " << e.what() << std::endl;
-    }
+    boost::asio::io_context ioc{};
+    tcp::acceptor acceptor{ioc, tcp::endpoint(tcp::v4(), 12345)};
+    tcp::socket socket{ioc};
+    acceptor.accept(socket);
+    std::cout << "Client connected." << std::endl;
+    communicate(std::move(socket));
 
     return EXIT_SUCCESS;
 }
